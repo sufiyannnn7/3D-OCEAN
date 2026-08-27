@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <defs>
+    <linearGradient id="oceanGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00f2fe" />
+      <stop offset="100%" stop-color="#4facfe" />
+    </linearGradient>
+    <linearGradient id="waveGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#00f2fe" stop-opacity="0.8" />
+      <stop offset="50%" stop-color="#3894f2" stop-opacity="0.9" />
+      <stop offset="100%" stop-color="#00f2fe" stop-opacity="0.8" />
+    </linearGradient>
+  </defs>
+  <!-- Outer Ring -->
+  <circle cx="32" cy="32" r="30" stroke="url(#oceanGrad)" stroke-width="2.5" stroke-dasharray="4 2" />
+  <circle cx="32" cy="32" r="25" fill="#071226" stroke="#1f4f9c" stroke-width="1.5" />
+  
+  <!-- 3D Ocean Waves / Depth Slices -->
+  <path d="M14 26 C20 21, 26 31, 32 26 C38 21, 44 31, 50 26" stroke="url(#waveGrad)" stroke-width="2.5" stroke-linecap="round" fill="none" />
+  <path d="M14 34 C20 29, 26 39, 32 34 C38 29, 44 39, 50 34" stroke="#256ec7" stroke-width="2" stroke-linecap="round" fill="none" />
+  <path d="M14 42 C20 37, 26 47, 32 42 C38 37, 44 47, 50 42" stroke="#18386e" stroke-width="1.5" stroke-linecap="round" fill="none" />
+  
+  <!-- Argo Float Indicator / Beacon -->
+  <circle cx="32" cy="20" r="3.5" fill="#ffb703" stroke="#fff" stroke-width="1" />
+  <circle cx="32" cy="20" r="7" stroke="#ffb703" stroke-width="0.8" stroke-dasharray="2 2" />
+</svg>

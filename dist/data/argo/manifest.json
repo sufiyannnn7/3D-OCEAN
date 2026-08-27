@@ -1,0 +1,33 @@
+{
+  "title": "Indian ARGO Floats -- Indian Ocean subset",
+  "nFloats": 78,
+  "nRows": 22479,
+  "latRange": [
+    -9.683,
+    22.333
+  ],
+  "lonRange": [
+    60.918,
+    91.4
+  ],
+  "depthRange_m": [
+    0.0,
+    2034.8
+  ],
+  "timeRange": [
+    "2025-01-01T13:41:00Z",
+    "2025-04-23T13:28:00Z"
+  ],
+  "variables": {
+    "TEMP": {
+      "units": "degC",
+      "longName": "Temperature"
+    },
+    "PSAL": {
+      "units": "PSU",
+      "longName": "Practical Salinity"
+    }
+  },
+  "note": "Each float's top-level lat/lon is its most recent fix in this dataset (floats drift between casts); per-profile-point time is included so the frontend can group by cast for a single-date depth-vs-variable chart, or show all casts overlaid.",
+  "file": "floats.json"
+}
