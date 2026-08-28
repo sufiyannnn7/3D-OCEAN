@@ -1,143 +1,180 @@
 import * as THREE from 'three';
-import { SCENE_WIDTH, SCENE_DEPTH } from '../../services/coordinateTransform';
-import { GridManifest } from '../../types/ocean';
+import { defaultCoordTransform } from '../../services/coordinateTransform';
+
+interface GeoJSONFeature {
+  type: string;
+  properties: any;
+  geometry: {
+    type: 'Polygon' | 'MultiPolygon';
+    coordinates: number[][][] | number[][][][];
+  };
+}
+
+interface GeoJSONFeatureCollection {
+  type: 'FeatureCollection';
+  features: GeoJSONFeature[];
+}
 
 export class LandmassMesh {
   public group: THREE.Group;
   private landMesh: THREE.Mesh | null = null;
   private coastLines: THREE.LineSegments | null = null;
-  private geometry: THREE.PlaneGeometry | null = null;
+  private isLoaded: boolean = false;
+  private isLoading: boolean = false;
 
-  constructor(manifest: GridManifest) {
+  // Materials
+  private landMaterial: THREE.MeshStandardMaterial;
+  private coastMaterial: THREE.LineBasicMaterial;
+
+  constructor() {
     this.group = new THREE.Group();
-    this.group.name = 'LandmassLayer';
+    this.group.name = 'GeographicLandLayer';
 
-    this.buildLandmasses(manifest);
-  }
-
-  private buildLandmasses(manifest: GridManifest) {
-    const { nLat, nLon, lats, lons } = manifest.grid;
-
-    // Grid for land elevation
-    this.geometry = new THREE.PlaneGeometry(
-      SCENE_WIDTH,
-      SCENE_DEPTH,
-      nLon - 1,
-      nLat - 1
-    );
-    this.geometry.rotateX(-Math.PI / 2);
-
-    const pos = this.geometry.attributes.position;
-    const count = pos.count;
-    const colors = new Float32Array(count * 3);
-
-    for (let r = 0; r < nLat; r++) {
-      const latIdx = nLat - 1 - r;
-      const lat = lats[latIdx];
-
-      for (let c = 0; c < nLon; c++) {
-        const lon = lons[c];
-        const vertexIdx = r * nLon + c;
-
-        const isLandPoint = this.checkIsLand(lat, lon);
-
-        if (isLandPoint) {
-          const elevation = 0.7 + 0.3 * Math.sin(lat * 0.3) * Math.cos(lon * 0.2);
-          pos.setY(vertexIdx, elevation);
-
-          colors[vertexIdx * 3 + 0] = 0.04 + 0.02 * elevation;
-          colors[vertexIdx * 3 + 1] = 0.07 + 0.03 * elevation;
-          colors[vertexIdx * 3 + 2] = 0.13 + 0.05 * elevation;
-        } else {
-          pos.setY(vertexIdx, -2.5);
-          colors[vertexIdx * 3 + 0] = 0.0;
-          colors[vertexIdx * 3 + 1] = 0.0;
-          colors[vertexIdx * 3 + 2] = 0.0;
-        }
-      }
-    }
-
-    this.geometry.computeVertexNormals();
-    this.geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-
-    const material = new THREE.MeshStandardMaterial({
-      vertexColors: true,
-      roughness: 0.8,
-      metalness: 0.1,
-      flatShading: true,
+    // Premium dark scientific aesthetic for continental landmasses
+    this.landMaterial = new THREE.MeshStandardMaterial({
+      color: 0x091830, // Deep slate obsidian
+      roughness: 0.7,
+      metalness: 0.2,
+      flatShading: false,
       side: THREE.DoubleSide,
     });
 
-    this.landMesh = new THREE.Mesh(this.geometry, material);
+    // Luminous coastline edge outline
+    this.coastMaterial = new THREE.LineBasicMaterial({
+      color: 0x3894f2,
+      transparent: true,
+      opacity: 0.65,
+    });
+
+    // Load Natural Earth GeoJSON at runtime
+    this.loadLandGeoJson('/geographic/land.geojson');
+  }
+
+  /**
+   * Asynchronously load and parse WGS84 GeoJSON land dataset
+   */
+  private async loadLandGeoJson(url: string): Promise<void> {
+    if (this.isLoading) return;
+    this.isLoading = true;
+
+    try {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`HTTP ${res.status}: Failed to fetch ${url}`);
+      const geojson: GeoJSONFeatureCollection = await res.json();
+
+      this.buildGeographicLand(geojson);
+      this.isLoaded = true;
+      this.isLoading = false;
+      console.log('Successfully loaded and rendered Natural Earth geographic land dataset.');
+    } catch (err) {
+      this.isLoading = false;
+      console.error('Error loading geographic land GeoJSON:', err);
+    }
+  }
+
+  /**
+   * Convert GeoJSON MultiPolygon & Polygon coordinates into 3D extruded land geometry
+   */
+  private buildGeographicLand(geojson: GeoJSONFeatureCollection): void {
+    const shapes: THREE.Shape[] = [];
+    const linePoints: THREE.Vector3[] = [];
+
+    const ELEVATION_HEIGHT = 0.6; // 3D land elevation above ocean surface
+
+    geojson.features.forEach((feature) => {
+      if (!feature.geometry) return;
+
+      const { type, coordinates } = feature.geometry;
+
+      // Normalize to list of Polygons: Array of [exteriorRing, hole1, hole2...]
+      let polygons: number[][][][] = [];
+      if (type === 'MultiPolygon') {
+        polygons = coordinates as number[][][][];
+      } else if (type === 'Polygon') {
+        polygons = [coordinates as number[][][]];
+      }
+
+      polygons.forEach((poly) => {
+        if (!poly || poly.length === 0 || poly[0].length < 3) return;
+
+        // 1. Exterior Ring (Shape boundary)
+        const exteriorRing = poly[0];
+        const shape = new THREE.Shape();
+
+        exteriorRing.forEach(([lon, lat], idx) => {
+          const pt3D = defaultCoordTransform.geoTo3D(lat, lon, 0, 1.0);
+          // Map to 2D Shape space (X = X, Y = -Z)
+          if (idx === 0) {
+            shape.moveTo(pt3D.x, -pt3D.z);
+          } else {
+            shape.lineTo(pt3D.x, -pt3D.z);
+          }
+        });
+
+        // 2. Interior Rings (Holes/Cutouts)
+        for (let h = 1; h < poly.length; h++) {
+          const holeRing = poly[h];
+          if (holeRing.length < 3) continue;
+
+          const holePath = new THREE.Path();
+          holeRing.forEach(([lon, lat], idx) => {
+            const pt3D = defaultCoordTransform.geoTo3D(lat, lon, 0, 1.0);
+            if (idx === 0) {
+              holePath.moveTo(pt3D.x, -pt3D.z);
+            } else {
+              holePath.lineTo(pt3D.x, -pt3D.z);
+            }
+          });
+          shape.holes.push(holePath);
+        }
+
+        shapes.push(shape);
+
+        // 3. Coastline Outline Segments (drawn at elevated surface)
+        poly.forEach((ring) => {
+          for (let i = 0; i < ring.length - 1; i++) {
+            const p0 = defaultCoordTransform.geoTo3D(ring[i][1], ring[i][0], 0, 1.0);
+            const p1 = defaultCoordTransform.geoTo3D(ring[i + 1][1], ring[i + 1][0], 0, 1.0);
+
+            linePoints.push(
+              new THREE.Vector3(p0.x, ELEVATION_HEIGHT + 0.02, p0.z),
+              new THREE.Vector3(p1.x, ELEVATION_HEIGHT + 0.02, p1.z)
+            );
+          }
+        });
+      });
+    });
+
+    if (shapes.length === 0) return;
+
+    // Extrude 3D Land Geometry
+    const extrudeSettings: THREE.ExtrudeGeometryOptions = {
+      depth: ELEVATION_HEIGHT,
+      bevelEnabled: true,
+      bevelSegments: 1,
+      steps: 1,
+      bevelSize: 0.04,
+      bevelThickness: 0.04,
+    };
+
+    const geometry = new THREE.ExtrudeGeometry(shapes, extrudeSettings);
+
+    // Rotate so Shape (X, Y) lies in horizontal (X, Z) plane, and extruded depth goes along +Y
+    geometry.rotateX(-Math.PI / 2);
+
+    geometry.computeVertexNormals();
+
+    this.landMesh = new THREE.Mesh(geometry, this.landMaterial);
     this.landMesh.castShadow = true;
     this.landMesh.receiveShadow = true;
     this.group.add(this.landMesh);
 
-    // Glowing Neon Coastline Grid outline
-    const wireGeom = new THREE.WireframeGeometry(this.geometry);
-    const wireMat = new THREE.LineBasicMaterial({
-      color: 0x3894f2,
-      transparent: true,
-      opacity: 0.22,
-    });
-    this.coastLines = new THREE.LineSegments(wireGeom, wireMat);
-    this.group.add(this.coastLines);
-  }
-
-  private checkIsLand(lat: number, lon: number): boolean {
-    if (lon < 39 && lat > -30) return true;
-    if (lon < 42 && lat > -15 && lat < 12) return true;
-    if (lon < 51 && lat > 8 && lat < 12 && lat < 11.5 && lon < 50.5) return true;
-    if (lon < 44 && lat > 12) return true;
-
-    // Madagascar
-    if (lon >= 43.5 && lon <= 50.5 && lat >= -25.5 && lat <= -12.0) {
-      if (Math.abs(lon - 47.0) < (25.5 + lat) * 0.2 + 1.2) return true;
+    // Build Coastlines Mesh
+    if (linePoints.length > 0) {
+      const lineGeom = new THREE.BufferGeometry().setFromPoints(linePoints);
+      this.coastLines = new THREE.LineSegments(lineGeom, this.coastMaterial);
+      this.group.add(this.coastLines);
     }
-
-    // Arabia / Middle East
-    if (lat >= 12.5 && lat <= 30) {
-      if (lon >= 43 && lon <= 59.5) {
-        if (lon < 43.5 && lat < 15) return false;
-        if (lat > 24 && lon > 50 && lon < 56) return false;
-        if (lat >= 13 && lon <= 59) return true;
-      }
-      if (lat >= 24.5 && lon >= 57 && lon <= 68.5) return true;
-    }
-
-    // Indian Subcontinent
-    if (lat >= 7.8 && lat <= 30) {
-      if (lat < 15) {
-        const halfWidth = (lat - 7.5) * 1.5;
-        if (Math.abs(lon - 77.5) <= halfWidth) return true;
-      } else if (lat < 23) {
-        if (lon >= 72.5 && lon <= 87.0) return true;
-      } else {
-        if (lon >= 67.5 && lon <= 90.0) return true;
-      }
-    }
-
-    // Sri Lanka
-    if (lat >= 5.8 && lat <= 9.8 && lon >= 79.5 && lon <= 82.0) return true;
-
-    // Southeast Asia & Indonesia
-    if (lat >= 0 && lat <= 30) {
-      if (lon >= 92 && lat >= 15 && lon <= 105) return true;
-      if (lon >= 99 && lat >= 1.2 && lat < 15) return true;
-    }
-    if (lat >= -6 && lat <= 5.8 && lon >= 95 && lon <= 106) {
-      const expectedLon = 95 + (5.8 - lat) * 1.8;
-      if (Math.abs(lon - expectedLon) < 2.5) return true;
-    }
-    if (lat >= -8.8 && lat <= -5.8 && lon >= 105.5 && lon <= 116) return true;
-
-    // Australia NW
-    if (lat <= -11.5 && lon >= 114) {
-      if (lat <= -19 || lon >= 121 || (lat <= -14 && lon >= 125)) return true;
-      if (lat <= -12.5 && lon >= 115 && lon + lat * 1.5 > 98) return true;
-    }
-
-    return false;
   }
 
   public setVisible(visible: boolean): void {
@@ -145,6 +182,13 @@ export class LandmassMesh {
   }
 
   public dispose(): void {
-    if (this.geometry) this.geometry.dispose();
+    if (this.landMesh) {
+      this.landMesh.geometry.dispose();
+    }
+    if (this.coastLines) {
+      this.coastLines.geometry.dispose();
+    }
+    this.landMaterial.dispose();
+    this.coastMaterial.dispose();
   }
 }

@@ -10,14 +10,24 @@ import {
   Compass, 
   RotateCcw,
   ArrowUpDown,
+  Waves,
+  Play,
+  Pause,
+  Clock,
+  Activity,
   X
 } from 'lucide-react';
 import { ColormapType, GridManifest, VisualizationSettings } from '../../types/ocean';
+import { WaveManifest, WaveSettings, WaveStats } from '../../types/wave';
 
 export interface ControlPanelProps {
   manifest: GridManifest;
   settings: VisualizationSettings;
   onUpdateSettings: (updates: Partial<VisualizationSettings>) => void;
+  waveManifest?: WaveManifest | null;
+  waveSettings?: WaveSettings;
+  onUpdateWaveSettings?: (updates: Partial<WaveSettings>) => void;
+  waveStats?: WaveStats;
   isOpen: boolean;
   onClose: () => void;
   activeSliceStats?: { min: number; max: number; mean: number; validCount: number };
@@ -27,6 +37,10 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
   manifest,
   settings,
   onUpdateSettings,
+  waveManifest,
+  waveSettings,
+  onUpdateWaveSettings,
+  waveStats,
   isOpen,
   onClose,
   activeSliceStats,
@@ -64,6 +78,21 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
     });
   };
 
+  const formatWaveTime = (iso: string) => {
+    try {
+      const d = new Date(iso);
+      return d.toLocaleDateString('en-US', {
+        month: 'short',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        timeZone: 'UTC',
+      }) + ' UTC';
+    } catch {
+      return iso;
+    }
+  };
+
   return (
     <aside className="absolute top-16 left-4 bottom-20 z-20 w-84 bg-scientific-panel/95 backdrop-blur-xl border border-scientific-border rounded-xl shadow-glass text-scientific-text flex flex-col overflow-hidden transition-all duration-300 select-none animate-in fade-in slide-in-from-left-4">
       {/* Panel Header */}
@@ -85,7 +114,114 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
 
       {/* Scrollable Control Sections */}
       <div className="flex-1 overflow-y-auto px-4 py-3 space-y-4 text-xs">
-        {/* 1. VARIABLE SELECTION */}
+        {/* 1. SURFACE WAVES (INCOIS WW3) */}
+        {waveSettings && onUpdateWaveSettings && (
+          <div className="p-2.5 rounded-lg bg-cyan/5 border border-cyan/30 space-y-2.5">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-1.5">
+                <Waves className="w-4 h-4 text-cyan" />
+                <span className="font-bold text-xs uppercase tracking-wider font-mono text-white">
+                  Surface Waves
+                </span>
+              </div>
+              <button
+                onClick={() => onUpdateWaveSettings({ showWaves: !waveSettings.showWaves })}
+                className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold transition-all ${
+                  waveSettings.showWaves
+                    ? 'bg-cyan text-ocean-950 shadow-cyan-glow'
+                    : 'bg-ocean-950 text-scientific-dim border border-scientific-border'
+                }`}
+              >
+                {waveSettings.showWaves ? 'ON' : 'OFF'}
+              </button>
+            </div>
+
+            {waveSettings.showWaves && (
+              <div className="space-y-2 pt-1 border-t border-cyan/20">
+                {/* Wave Intensity */}
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between text-[10px] font-mono">
+                    <span className="text-scientific-dim">Wave Intensity:</span>
+                    <span className="text-cyan font-bold">{waveSettings.intensity.toFixed(1)}x</span>
+                  </div>
+                  <input
+                    type="range"
+                    min={0.2}
+                    max={2.5}
+                    step={0.1}
+                    value={waveSettings.intensity}
+                    onChange={(e) => onUpdateWaveSettings({ intensity: parseFloat(e.target.value) })}
+                    className="w-full h-1.5 bg-ocean-800 rounded-lg appearance-none cursor-pointer accent-cyan"
+                  />
+                </div>
+
+                {/* Wave Animation & Shading Toggles */}
+                <div className="flex items-center justify-between pt-1">
+                  <button
+                    onClick={() => onUpdateWaveSettings({ isPlaying: !waveSettings.isPlaying })}
+                    className={`flex items-center gap-1 px-2 py-1 rounded text-[10px] font-mono transition-colors ${
+                      waveSettings.isPlaying
+                        ? 'bg-teal-500/20 text-teal-300 border border-teal-500/40'
+                        : 'bg-ocean-950 text-scientific-dim border border-scientific-border'
+                    }`}
+                  >
+                    {waveSettings.isPlaying ? (
+                      <>
+                        <Pause className="w-3 h-3" />
+                        <span>Animation: Playing</span>
+                      </>
+                    ) : (
+                      <>
+                        <Play className="w-3 h-3" />
+                        <span>Animation: Paused</span>
+                      </>
+                    )}
+                  </button>
+
+                  <button
+                    onClick={() => onUpdateWaveSettings({ colorByWaveHeight: !waveSettings.colorByWaveHeight })}
+                    className={`px-2 py-1 rounded text-[10px] font-mono border transition-colors ${
+                      waveSettings.colorByWaveHeight
+                        ? 'bg-amber-400/15 text-amber-300 border-amber-400/40'
+                        : 'bg-ocean-950 text-scientific-dim border-scientific-border'
+                    }`}
+                  >
+                    {waveSettings.colorByWaveHeight ? '🎨 Colored (HS)' : '🌊 Realistic'}
+                  </button>
+                </div>
+
+                {/* Wave Forecast Timestep Selector */}
+                {waveManifest && (
+                  <div className="space-y-1 pt-1">
+                    <div className="flex items-center justify-between text-[10px] font-mono">
+                      <span className="text-scientific-dim flex items-center gap-1">
+                        <Clock className="w-3 h-3 text-cyan" />
+                        WW3 Forecast Time:
+                      </span>
+                      <span className="text-white font-semibold">
+                        Step {waveSettings.timestepIndex + 1}/{waveManifest.times.length}
+                      </span>
+                    </div>
+
+                    <select
+                      value={waveSettings.timestepIndex}
+                      onChange={(e) => onUpdateWaveSettings({ timestepIndex: parseInt(e.target.value) })}
+                      className="w-full bg-ocean-950 border border-scientific-border rounded px-2 py-1 text-[11px] font-mono text-cyan focus:border-cyan focus:outline-none"
+                    >
+                      {waveManifest.times.map((t, idx) => (
+                        <option key={t} value={idx}>
+                          {formatWaveTime(t)}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* 2. OBSERVATION VARIABLE SELECTION */}
         <div className="space-y-2">
           <label className="text-[11px] font-semibold uppercase tracking-wider text-scientific-dim flex items-center justify-between">
             <span>Observation Variable</span>
@@ -118,7 +254,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
           </div>
         </div>
 
-        {/* 2. DEPTH SLICE SLIDER */}
+        {/* 3. DEPTH SLICE SLIDER */}
         <div className="space-y-2 pt-2 border-t border-scientific-border/60">
           <div className="flex items-center justify-between">
             <span className="text-[11px] font-semibold uppercase tracking-wider text-scientific-dim">
@@ -170,13 +306,13 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
           </div>
         </div>
 
-        {/* 3. OPACITY & VERTICAL EXAGGERATION */}
+        {/* 4. OPACITY & VERTICAL EXAGGERATION */}
         <div className="space-y-3 pt-2 border-t border-scientific-border/60">
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
               <span className="text-[11px] font-medium text-scientific-dim flex items-center gap-1.5">
                 <Eye className="w-3.5 h-3.5 text-scientific-dim" />
-                Layer Opacity
+                Slice Opacity
               </span>
               <span className="font-mono text-xs text-white">
                 {Math.round(settings.opacity * 100)}%
@@ -215,7 +351,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
           </div>
         </div>
 
-        {/* 4. COLORMAP & RANGE */}
+        {/* 5. COLORMAP & RANGE */}
         <div className="space-y-2.5 pt-2 border-t border-scientific-border/60">
           <div className="flex items-center justify-between">
             <span className="text-[11px] font-semibold uppercase tracking-wider text-scientific-dim flex items-center gap-1.5">
@@ -302,7 +438,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
           )}
         </div>
 
-        {/* 5. 3D SCENE LAYERS TOGGLE */}
+        {/* 6. 3D SCENE LAYERS TOGGLE */}
         <div className="space-y-2 pt-2 border-t border-scientific-border/60">
           <span className="text-[11px] font-semibold uppercase tracking-wider text-scientific-dim flex items-center gap-1.5">
             <Layers className="w-3.5 h-3.5 text-cyan" />
@@ -310,6 +446,21 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
           </span>
 
           <div className="space-y-1.5 font-mono text-[11px]">
+            {waveSettings && onUpdateWaveSettings && (
+              <label className="flex items-center justify-between p-1.5 rounded hover:bg-ocean-800/40 cursor-pointer">
+                <span className="flex items-center gap-2 text-white">
+                  <Waves className="w-3.5 h-3.5 text-cyan" />
+                  Surface Waves (WW3)
+                </span>
+                <input
+                  type="checkbox"
+                  checked={waveSettings.showWaves}
+                  onChange={(e) => onUpdateWaveSettings({ showWaves: e.target.checked })}
+                  className="rounded bg-ocean-950 border-scientific-border text-cyan focus:ring-0 cursor-pointer"
+                />
+              </label>
+            )}
+
             <label className="flex items-center justify-between p-1.5 rounded hover:bg-ocean-800/40 cursor-pointer">
               <span className="flex items-center gap-2 text-white">
                 <Anchor className="w-3.5 h-3.5 text-amber-400" />
@@ -339,7 +490,7 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
             <label className="flex items-center justify-between p-1.5 rounded hover:bg-ocean-800/40 cursor-pointer">
               <span className="flex items-center gap-2 text-white">
                 <Compass className="w-3.5 h-3.5 text-emerald-400" />
-                Coastal Landmasses
+                Geographic Land
               </span>
               <input
                 type="checkbox"

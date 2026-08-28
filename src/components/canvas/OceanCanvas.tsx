@@ -4,23 +4,30 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { defaultCoordTransform } from '../../services/coordinateTransform';
 import { GridManifest, TimestepData, VisualizationSettings } from '../../types/ocean';
 import { ArgoFloat } from '../../types/argo';
+import { WaveManifest, WaveTimestepData, WaveSettings, WaveSample } from '../../types/wave';
 import { OceanSliceMesh } from './OceanSliceMesh';
 import { SeabedMesh } from './SeabedMesh';
 import { ArgoMarkers } from './ArgoMarkers';
 import { LandmassMesh } from './LandmassMesh';
 import { CoordinateAxes } from './CoordinateAxes';
+import { WaveSurfaceMesh } from './WaveSurfaceMesh';
 import { gridDataLoader } from '../../services/gridDataLoader';
+import { waveDataLoader } from '../../services/waveDataLoader';
 
 export interface OceanCanvasProps {
   manifest: GridManifest;
   stepData: TimestepData;
   floats: ArgoFloat[];
   settings: VisualizationSettings;
+  waveManifest?: WaveManifest | null;
+  waveStepData?: WaveTimestepData | null;
+  waveSettings?: WaveSettings;
   hoveredFloatId: string | null;
   selectedFloatId: string | null;
   onHoverFloat: (floatId: string | null, float: ArgoFloat | null, screenPos: { x: number; y: number } | null) => void;
   onSelectFloat: (floatId: string | null) => void;
   onHoverOcean: (info: { lat: number; lon: number; depth: number; value: number | null } | null, screenPos: { x: number; y: number } | null) => void;
+  onHoverWave?: (sample: WaveSample | null) => void;
   resetViewTrigger: number;
 }
 
@@ -29,11 +36,15 @@ export const OceanCanvas: React.FC<OceanCanvasProps> = ({
   stepData,
   floats,
   settings,
+  waveManifest,
+  waveStepData,
+  waveSettings,
   hoveredFloatId,
   selectedFloatId,
   onHoverFloat,
   onSelectFloat,
   onHoverOcean,
+  onHoverWave,
   resetViewTrigger,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -48,6 +59,7 @@ export const OceanCanvas: React.FC<OceanCanvasProps> = ({
   const argoLayerRef = useRef<ArgoMarkers | null>(null);
   const landLayerRef = useRef<LandmassMesh | null>(null);
   const axesLayerRef = useRef<CoordinateAxes | null>(null);
+  const waveLayerRef = useRef<WaveSurfaceMesh | null>(null);
 
   // Camera transition
   const cameraTargetPos = useRef<THREE.Vector3>(new THREE.Vector3(0, 52, 68));
@@ -132,13 +144,23 @@ export const OceanCanvas: React.FC<OceanCanvasProps> = ({
     scene.add(argoLayer.group);
     argoLayerRef.current = argoLayer;
 
-    const landLayer = new LandmassMesh(manifest);
+    const landLayer = new LandmassMesh();
     scene.add(landLayer.group);
     landLayerRef.current = landLayer;
 
     const axesLayer = new CoordinateAxes(manifest);
     scene.add(axesLayer.group);
     axesLayerRef.current = axesLayer;
+
+    // Instantiate Wave Layer if wave manifest is available
+    if (waveManifest) {
+      const waveLayer = new WaveSurfaceMesh(waveManifest);
+      if (waveStepData) {
+        waveLayer.updateTimestep(waveStepData);
+      }
+      scene.add(waveLayer.group);
+      waveLayerRef.current = waveLayer;
+    }
 
     // 7. Render Loop
     let animationFrameId: number;
@@ -170,6 +192,10 @@ export const OceanCanvas: React.FC<OceanCanvasProps> = ({
         );
       }
 
+      if (waveLayerRef.current && waveSettings) {
+        waveLayerRef.current.update(waveSettings, delta);
+      }
+
       renderer.render(scene, camera);
     };
 
@@ -196,7 +222,7 @@ export const OceanCanvas: React.FC<OceanCanvasProps> = ({
         container.removeChild(renderer.domElement);
       }
     };
-  }, [manifest]);
+  }, [manifest, waveManifest]);
 
   useEffect(() => {
     if (argoLayerRef.current && floats.length > 0) {
@@ -209,6 +235,12 @@ export const OceanCanvas: React.FC<OceanCanvasProps> = ({
       sliceLayerRef.current.update(stepData, settings);
     }
   }, [stepData, settings]);
+
+  useEffect(() => {
+    if (waveLayerRef.current && waveStepData) {
+      waveLayerRef.current.updateTimestep(waveStepData);
+    }
+  }, [waveStepData]);
 
   useEffect(() => {
     if (seabedLayerRef.current) {
@@ -225,7 +257,8 @@ export const OceanCanvas: React.FC<OceanCanvasProps> = ({
     if (argoLayerRef.current) argoLayerRef.current.setVisible(settings.showArgoFloats);
     if (landLayerRef.current) landLayerRef.current.setVisible(settings.showLandmass);
     if (axesLayerRef.current) axesLayerRef.current.setVisible(settings.showCoordinates);
-  }, [settings.showSeabed, settings.showArgoFloats, settings.showLandmass, settings.showCoordinates]);
+    if (waveLayerRef.current && waveSettings) waveLayerRef.current.setVisible(waveSettings.showWaves);
+  }, [settings.showSeabed, settings.showArgoFloats, settings.showLandmass, settings.showCoordinates, waveSettings?.showWaves]);
 
   useEffect(() => {
     if (!cameraRef.current || !controlsRef.current) return;
@@ -286,6 +319,7 @@ export const OceanCanvas: React.FC<OceanCanvasProps> = ({
         const float = hit.userData.float;
         onHoverFloat(floatId, float, { x: e.clientX, y: e.clientY });
         onHoverOcean(null, null);
+        if (onHoverWave) onHoverWave(null);
         return;
       } else {
         onHoverFloat(null, null, null);
@@ -300,30 +334,39 @@ export const OceanCanvas: React.FC<OceanCanvasProps> = ({
         const point = sliceIntersects[0].point;
         const geo = defaultCoordTransform.worldToGeo(point, settings.verticalExaggeration);
 
-        if (geo.inBounds && stepData) {
-          const sampleVal = gridDataLoader.sampleValue(
-            stepData,
-            settings.variable,
-            settings.depthIndex,
-            geo.lat,
-            geo.lon
-          );
+        if (geo.inBounds) {
+          if (stepData) {
+            const sampleVal = gridDataLoader.sampleValue(
+              stepData,
+              settings.variable,
+              settings.depthIndex,
+              geo.lat,
+              geo.lon
+            );
 
-          onHoverOcean(
-            {
-              lat: geo.lat,
-              lon: geo.lon,
-              depth: manifest.depths_m[settings.depthIndex] || 0,
-              value: sampleVal,
-            },
-            { x: e.clientX, y: e.clientY }
-          );
+            onHoverOcean(
+              {
+                lat: geo.lat,
+                lon: geo.lon,
+                depth: manifest.depths_m[settings.depthIndex] || 0,
+                value: sampleVal,
+              },
+              { x: e.clientX, y: e.clientY }
+            );
+          }
+
+          if (waveStepData && onHoverWave) {
+            const waveSample = waveDataLoader.sampleWaveAt(waveStepData, geo.lat, geo.lon);
+            onHoverWave(waveSample);
+          }
+
           return;
         }
       }
     }
 
     onHoverOcean(null, null);
+    if (onHoverWave) onHoverWave(null);
   };
 
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {

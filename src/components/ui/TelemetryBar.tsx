@@ -1,20 +1,25 @@
 import React from 'react';
-import { Crosshair, MapPin, Layers, Thermometer, Droplets, Anchor } from 'lucide-react';
+import { Crosshair, Anchor, Waves } from 'lucide-react';
 import { OceanVariable } from '../../types/ocean';
 import { ArgoFloat } from '../../types/argo';
+import { WaveSample } from '../../types/wave';
 
 export interface TelemetryBarProps {
   oceanHover: { lat: number; lon: number; depth: number; value: number | null } | null;
+  hoveredWave?: WaveSample | null;
   hoveredFloat: { floatId: string; float: ArgoFloat; screenPos: { x: number; y: number } | null } | null;
   variable: OceanVariable;
   visibleFloatsCount: number;
+  showWaves?: boolean;
 }
 
 export const TelemetryBar: React.FC<TelemetryBarProps> = ({
   oceanHover,
+  hoveredWave,
   hoveredFloat,
   variable,
   visibleFloatsCount,
+  showWaves,
 }) => {
   const isTemp = variable === 'temperature';
   const unit = isTemp ? '°C' : 'PSU';
@@ -45,10 +50,21 @@ export const TelemetryBar: React.FC<TelemetryBarProps> = ({
                 {oceanHover.value !== null ? `${oceanHover.value} ${unit}` : 'LAND MASK'}
               </strong>
             </span>
+
+            {showWaves && hoveredWave && hoveredWave.hs !== null && (
+              <span className="border-l border-scientific-border pl-3 flex items-center gap-1.5 text-cyan">
+                <Waves className="w-3 h-3 text-cyan" />
+                <span>HS: <strong className="text-white">{hoveredWave.hs}m</strong></span>
+                <span className="text-scientific-dim">•</span>
+                <span>PWP: <strong className="text-white">{hoveredWave.pwp}s</strong></span>
+                <span className="text-scientific-dim">•</span>
+                <span>MWD: <strong className="text-white">{hoveredWave.mwd}°</strong></span>
+              </span>
+            )}
           </div>
         ) : (
           <span className="text-scientific-dim italic">
-            Hover over 3D ocean slice or buoys to sample real data
+            Hover over 3D ocean slice, wave surface, or buoys to sample real data
           </span>
         )}
 
